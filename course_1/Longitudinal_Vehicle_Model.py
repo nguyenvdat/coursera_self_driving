@@ -45,7 +45,7 @@
 #
 # We setup the longitudinal model inside a Python class below. The vehicle begins with an initial velocity of 5 m/s and engine speed of 100 rad/s. All the relevant parameters are defined and like the bicycle model, a sampling time of 10ms is used for numerical integration.
 
-# In[ ]:
+# In[1]:
 
 
 import sys
@@ -101,7 +101,7 @@ class Vehicle():
 
 # Implement the combined engine dynamic equations along with the force equations in the cell below. The function $\textit{step}$ takes the throttle $x_\theta$ and incline angle $\alpha$ as inputs and performs numerical integration over one timestep to update the state variables. Hint: Integrate to find the current position, velocity, and engine speed first, then propagate those values into the set of equations.
 
-# In[ ]:
+# In[6]:
 
 
 class Vehicle(Vehicle):
@@ -109,13 +109,29 @@ class Vehicle(Vehicle):
         # ==================================
         #  Implement vehicle model here
         # ==================================
-        pass
+        self.x += self.sample_time * self.v
+        self.v += self.sample_time * self.a
+        self.w_e += self.sample_time * self.w_e_dot
+
+        # calculate acceleration
+        F_aero = self.c_a * self.v * self.v
+        r_x = self.c_r1 * self.v
+        F_g = self.m * self.g * np.sin(alpha)
+        F_load = F_aero + r_x + F_g
+        w_w = self.GR * self.w_e
+        s = (w_w * self.r_e - self.v) / self.v
+        F_x = self.c * s if np.abs(s) < 1 else self.F_max
+        self.a = (F_x - F_load) / self.m
+
+        # calculate w_dot
+        T_e = throttle * (self.a_0 + self.a_1 * self.w_e +
+                          self.a_2 * self.w_e * self.w_e)
+        self.w_e_dot = (T_e - self.GR * self.r_e * F_load) / self.J_e
 
 
 # Using the model, you can send constant throttle inputs to the vehicle in the cell below. You will observe that the velocity converges to a fixed value based on the throttle input due to the aerodynamic drag and tire force limit. A similar velocity profile can be seen by setting a negative incline angle $\alpha$. In this case, gravity accelerates the vehicle to a terminal velocity where it is balanced by the drag force.
 
-# In[ ]:
-
+# In[7]:
 
 sample_time = 0.01
 time_end = 100
@@ -151,7 +167,7 @@ plt.show()
 # In the cell below, implement the ramp angle profile $\alpha (x)$ and throttle profile $x_\theta (t)$ and step them through the vehicle dynamics. The vehicle position $x(t)$ is saved in the array $\textit{x_data}$. This will be used to grade your solution.
 #
 
-# In[ ]:
+# In[35]:
 
 
 time_end = 20
@@ -164,7 +180,24 @@ model.reset()
 # ==================================
 #  Learner solution begins here
 # ==================================
-
+T = t_data.shape[0]
+for i in range(T):
+    x_data[i] = model.x
+    # throttle
+    if i <= 1/4*T:
+        throttle = 0.2 + i / (T / 4) * (0.5 - 0.2)
+    elif i <= 3/4 * T:
+        throttle = 0.5
+    else:
+        throttle = 0.5 - (i - 3/4*T) / (T/4) * 0.5
+    # alpha
+    if model.x <= np.sqrt(3*3 + 60*60):
+        alpha = np.arcsin(3/np.sqrt(3*3 + 60*60))
+    elif model.x <= np.sqrt(3*3 + 60*60) + np.sqrt(9*9 + 90*90):
+        alpha = np.arcsin(9/np.sqrt(9*9 + 90*90))
+    else:
+        alpha = 0
+    model.step(throttle, alpha)
 # ==================================
 #  Learner solution ends here
 # ==================================
@@ -172,6 +205,7 @@ model.reset()
 # Plot x vs t for visualization
 plt.plot(t_data, x_data)
 plt.show()
+print(x_data[int(3/4*T)])
 
 
 # If you have implemented the vehicle model and inputs correctly, you should see that the vehicle crosses the ramp at ~15s where the throttle input begins to decrease.
@@ -180,7 +214,7 @@ plt.show()
 #
 # Once you are there, you can download the file and submit to the Coursera grader to complete this assessment.
 
-# In[ ]:
+# In[36]:
 
 
 data = np.vstack([t_data, x_data]).T
