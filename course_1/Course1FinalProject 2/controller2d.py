@@ -12,6 +12,7 @@ class Controller2D(object):
         self.vars                = cutils.CUtils()
         self._current_x          = 0
         self._current_y          = 0
+        
         self._current_yaw        = 0
         self._current_speed      = 0
         self._desired_speed      = 0
@@ -92,6 +93,11 @@ class Controller2D(object):
         throttle_output = 0
         steer_output    = 0
         brake_output    = 0
+        Kp = 0.5
+        Ki = 0.5
+        Kd = 0.5
+        L = 1.5
+        Kdd = 0.2
 
         ######################################################
         ######################################################
@@ -114,6 +120,10 @@ class Controller2D(object):
             throttle_output = 0.5 * self.vars.v_previous
         """
         self.vars.create_var('v_previous', 0.0)
+        self.vars.create_var('t_prev', 0)
+        self.vars.create_var('e_p_prev', 0)
+        self.vars.create_var('e_integral', 0)
+        self.vars.create_var('waypoint_prev', 0)
 
         # Skip the first frame to store previous values properly
         if self._start_control_loop:
@@ -165,6 +175,16 @@ class Controller2D(object):
             # assignment, as the car will naturally slow down over time.
             throttle_output = 0
             brake_output    = 0
+            dt = t - self.vars.t_prev
+            e_p = v_desired - v
+            e_i = self.vars.e_integral + dt * e_p
+            e_d = (e_p - self.vars.e_p_prev) / dt
+            u = Kp * e_p + Ki * e_i + Kd * e_d
+            if u > 0:
+                throttle_output = u
+            else:
+                brake_output = -u
+
 
             ######################################################
             ######################################################
@@ -179,6 +199,28 @@ class Controller2D(object):
             
             # Change the steer output with the lateral controller. 
             steer_output    = 0
+            # PURE PURSUIT CONTROLLER
+            # traj_t = np.array(waypoints[-1])[0:2] - np.array(waypoints[0])[0:2]
+            # ref_angle = np.arctan2(traj_t[1], traj_t[0])
+            # alpha = ref_angle - yaw
+            # steer_output = np.arctan(2 * L * np.sin(alpha) / (Kdd * v))
+            # steer_output = np.arctan2(np.sin(steer_output), np.cos(steer_output))
+
+            # STANLEY CONTROLLER
+            # self.vars.waypoint_prev = np.array(waypoints[0])[0:2]
+            waypoint_now = np.array(waypoints[1])[0:2]
+            traj_t = waypoint_now - self.vars.waypoint_prev
+            A = -traj_t[1]
+            B = traj_t[0]
+            C = A * -waypoint_now[0] + B * -waypoint_now[1]
+            x_front = L * np.cos(yaw) + x
+            y_front = L * np.sin(yaw) + y
+            e = (A * x_front + B * y_front + C) / np.sqrt(A*A + B*B)
+            print(e)
+            k = 0.5
+            psy = np.arctan2(-A, B) - yaw
+            cross_track = np.arctan(k*e/v)
+            steer_output = psy - cross_track
 
             ######################################################
             # SET CONTROLS OUTPUT
@@ -198,3 +240,8 @@ class Controller2D(object):
             in the next iteration)
         """
         self.vars.v_previous = v  # Store forward speed to be used in next step
+        self.vars.t_prev = t
+        self.vars.e_p_prev = e_p
+        self.vars.e_integral = e_i
+        # self.vars.waypoint_prev = waypoint_now
+        self.vars.waypoint_prev = np.array(waypoints[0])[0:2]
