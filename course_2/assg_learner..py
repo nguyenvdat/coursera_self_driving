@@ -69,7 +69,7 @@
 # ### Unpack the Data
 # First, let's unpack the available data:
 
-# In[1]:
+# In[10]:
 
 
 import pickle
@@ -113,13 +113,13 @@ d = data['d']  # distance between robot center and laser rangefinder [m]
 # Now that our data is loaded, we can begin getting things set up for our solver. One of the
 # most important aspects of designing a filter is determining the input and measurement noise covariance matrices, as well as the initial state and covariance values. We set the values here:
 
-# In[2]:
+# In[21]:
 
 
 v_var = 0.01  # translation velocity variance  
-om_var = 0.01  # rotational velocity variance 
+om_var = 0.05  # rotational velocity variance 
 r_var = 0.1  # range measurements variance
-b_var = 0.1  # bearing measurement variance
+b_var = 1  # bearing measurement variance
 
 Q_km = np.diag([v_var, om_var]) # input noise covariance 
 cov_y = np.diag([r_var, b_var])  # measurement noise covariance 
@@ -135,7 +135,7 @@ P_est[0] = np.diag([1, 1, 0.1]) # initial state covariance
 # 
 # In order for the orientation estimates to coincide with the bearing measurements, it is also neccessary to wrap all estimated $\theta$ values to the $(-\pi , \pi]$ range.
 
-# In[3]:
+# In[13]:
 
 
 # Wraps angle to (-pi,pi] range
@@ -173,18 +173,35 @@ def wraptopi(x):
 # \mathbf{\hat{P}}_k &= \left(\mathbf{I} - \mathbf{K}_k \mathbf{H}_k \right)\mathbf{\check{P}}_k
 # \end{align}
 
-# In[4]:
+# In[14]:
 
 
+import sympy as sp
+from sympy import *
+from sympy.abc import x, y, theta
+from numpy.linalg import inv
+yl=sp.symbols('yl', real=True)
+xl=sp.symbols('xl', real=True)
+ds=sp.symbols('ds', real=True)
+Y = Matrix([sqrt((xl - x - ds*cos(theta))**2 + (yl - y - ds*sin(theta))**2),             atan2(yl - y - ds*sin(theta), xl - x - ds*cos(theta) - theta)])
+X = Matrix([x, y, theta])
+H = Y.jacobian(X)
+M = np.eye(2)
 def measurement_update(lk, rk, bk, P_check, x_check):
     
     # 1. Compute measurement Jacobian
-
+    H_val = H.evalf(subs={x:x_check[0], y:x_check[1], theta:x_check[2], ds:d[0], xl:lk[0], yl:lk[1]})
+    
     # 2. Compute Kalman Gain
+    K = P_check @ H_val.T @ inv(np.array(H_val @ P_check @ H_val.T + M @ cov_y @ M.T, dtype='float'))
 
     # 3. Correct predicted state (remember to wrap the angles to [-pi,pi])
+    lk_check = Y.evalf(subs={x:x_check[0], y:x_check[1], theta:x_check[2], ds:d[0], xl:lk[0], yl:lk[1]})
+    x_check = x_check + K @ (np.array([[rk], [bk]]) - lk_check)
+    x_check[2] = wraptopi(x_check[2])
 
     # 4. Correct covariance
+    P_check = (np.eye(3) - K @ H_val) @ P_check
 
     return x_check, P_check
 
@@ -205,24 +222,37 @@ def measurement_update(lk, rk, bk, P_check, x_check):
 # \mathbf{L}_{k-1} = \frac{\partial \mathbf{f}}{\partial \mathbf{w}_{k}}\bigg|_{\mathbf{\hat{x}}_{k-1},\mathbf{u}_{k},0} \, .
 # \end{align}
 
-# In[5]:
+# In[22]:
 
 
 #### 5. Main Filter Loop #######################################################################
+T=sp.symbols('T', real=True)
+w1=sp.symbols('wl', real=True)
+w2=sp.symbols('w2', real=True)
+vs=sp.symbols('vs', real=True)
+omega=sp.symbols('omega', real=True)
+X_next = Matrix([x, y, theta]) + T * Matrix([[cos(theta), 0], [sin(theta), 0], [0, 1]]) *         (Matrix([vs, omega]) + Matrix([w1, w2]))
+W = Matrix([w1, w2])
+F = X_next.jacobian(X)
+L = X_next.jacobian(W)
+x_check = x_est[0]
+P_check = P_est[0]
 for k in range(1, len(t)):  # start at 1 because we've set the initial prediciton
 
     delta_t = t[k] - t[k - 1]  # time step (difference between timestamps)
 
     # 1. Update state with odometry readings (remember to wrap the angles to [-pi,pi])
-    x_check = np.zeros(3)
+    x_check = X_next.evalf(subs={x:x_check[0], y:x_check[1], theta:x_check[2], vs:v[k],                                  omega:om[k], w1:0, w2:0, T:delta_t})
+    x_check[2] = wraptopi(x_check[2])
 
     # 2. Motion model jacobian with respect to last state
-    F_km = np.zeros([3, 3])
+    F_km = F.evalf(subs={x:x_check[0], y:x_check[1], theta:x_check[2], vs:v[k], omega:om[k], w1:0, w2:0, T:delta_t})
 
     # 3. Motion model jacobian with respect to noise
-    L_km = np.zeros([3, 2])
+    L_km = L.evalf(subs={x:x_check[0], y:x_check[1], theta:x_check[2], vs:v[k], omega:om[k], w1:0, w2:0, T:delta_t})
 
     # 4. Propagate uncertainty
+    P_check = F_km @ P_check @ F_km.T + L_km @ Q_km @ L_km.T
 
     # 5. Update state estimate using available landmark measurements
     for i in range(len(r[k])):
@@ -237,7 +267,7 @@ for k in range(1, len(t)):  # start at 1 because we've set the initial predicito
 
 # Let's plot the resulting state estimates:
 
-# In[ ]:
+# In[20]:
 
 
 e_fig = plt.figure()
@@ -259,7 +289,7 @@ plt.show()
 
 # Are you satisfied wth your results? The resulting trajectory should closely resemble the ground truth, with minor "jumps" in the orientation estimate due to angle wrapping. If this is the case, run the code below to produce your solution file.
 
-# In[ ]:
+# In[17]:
 
 
 with open('submission.pkl', 'wb') as f:
