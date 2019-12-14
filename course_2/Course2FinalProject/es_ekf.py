@@ -100,11 +100,13 @@ var_imu_f = 0.10
 var_imu_w = 0.25
 var_gnss = 0.01
 var_lidar = 1.00
+gnss_var = var_gnss * np.eye(3)
+lidar_var = var_lidar * np.eye(3)
 
 ################################################################################################
 # We can also set up some constants that won't change for any iteration of our solver.
 ################################################################################################
-g = np.array([0, 0, -9.81])  # gravity
+g = np.array([[0], [0], [-9.81]])  # gravity
 l_jac = np.zeros([9, 6])
 l_jac[3:, :] = np.eye(6)  # motion model noise jacobian
 h_jac = np.zeros([3, 9])
@@ -140,12 +142,20 @@ lidar_i = 0
 
 def measurement_update(sensor_var, p_cov_check, y_k, p_check, v_check, q_check):
     # 3.1 Compute Kalman Gain
+    K = p_cov_check @ h_jac.T @ np.linalg.inv(
+        h_jac @ p_cov_check @ h_jac.T + sensor_var)
 
     # 3.2 Compute error state
+    delta_x = K @ (y_k - p_check)
 
     # 3.3 Correct predicted state
+    p_hat = p_check + delta_x[:3]
+    v_hat = v_check + delta_x[3:6]
+    q_hat = Quaternion(
+        *q_check).quat_mult_right(Quaternion(axis_angle=delta_x[6:]))
 
     # 3.4 Compute corrected covariance
+    p_cov_hat = (np.eye(9) - K @ h_jac) @ p_cov_check
 
     return p_hat, v_hat, q_hat, p_cov_hat
 
@@ -157,18 +167,59 @@ def measurement_update(sensor_var, p_cov_check, y_k, p_check, v_check, q_check):
 # for our state in a loop.
 ################################################################################################
 # start at 1 b/c we have initial prediction from gt
+lidar_t_index = 0
+gnss_t_index = 0
 for k in range(1, imu_f.data.shape[0]):
     delta_t = imu_f.t[k] - imu_f.t[k - 1]
 
     # 1. Update state with IMU inputs
+    p_check = p_est[k - 1].reshape((3, 1))
+    v_check = v_est[k - 1].reshape((3, 1))
+    q_check = q_est[k - 1].reshape((4, 1))
+    p_cov_check = p_cov[k - 1]
+    C_ns = Quaternion(*q_check).to_mat()  # [3, 3]
+    f = imu_f.data[k - 1, :].reshape((3, 1))
+    omega = imu_w.data[k - 1, :]
+    p_check = p_check + delta_t*v_check + delta_t*delta_t/2 * (C_ns @ f + g)
+    v_check = v_check + delta_t*(C_ns @ f + g)
+    q_check = Quaternion(*q_check).quat_mult_left(Quaternion(axis_angle=omega*delta_t))
 
     # 1.1 Linearize the motion model and compute Jacobians
+    F = np.eye(9)
+    F[:3, 3:6] = np.eye(3) * delta_t
+    F[3:6, 6:] = -skew_symmetric(C_ns @ f) * delta_t
+    # print(F)
+    L = np.zeros((9, 6))
+    L[3:6, :3] = np.eye(3)
+    L[6:, 3:] = np.eye(3)
+    # print()
+    # print(L)
+    Q = np.eye(6)
+    Q[[0, 1, 2], [0, 1, 2]] = delta_t * delta_t * var_imu_f
+    Q[[3, 4, 5], [3, 4, 5]] = delta_t * delta_t * var_imu_w
+    # print()
+    # print(Q)
 
     # 2. Propagate uncertainty
+    p_cov_check = F @ p_cov_check @ F.T + L @ Q @ L.T
 
     # 3. Check availability of GNSS and LIDAR measurements
+    if lidar_t_index < len(lidar.t) and lidar.t[lidar_t_index] <= imu_f.t[k]:
+        y_k = lidar.data[lidar_t_index].reshape((3, 1))
+        p_check, v_check, q_check, p_cov_check = measurement_update(lidar_var, p_cov_check, y_k, p_check, v_check, q_check)
+        lidar_t_index = lidar_t_index + 1
+    if gnss_t_index < len(gnss.t) and gnss.t[gnss_t_index] <= imu_f.t[k]:
+        y_k = gnss.data[gnss_t_index].reshape((3, 1))
+        p_check, v_check, q_check, p_cov_check = measurement_update(gnss_var, p_cov_check, y_k, p_check, v_check, q_check)
+        gnss_t_index = gnss_t_index + 1
 
     # Update states (save)
+    p_est[k] = np.squeeze(p_check)
+    v_est[k] = np.squeeze(v_check)
+    q_est[k] = np.squeeze(q_check)
+    p_cov[k] = np.squeeze(p_cov_check)
+    # break
+
 
 #### 6. Results and Analysis ###################################################################
 
