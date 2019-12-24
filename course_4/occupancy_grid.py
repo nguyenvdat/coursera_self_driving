@@ -98,7 +98,7 @@ def get_ranges(true_map, X, meas_phi, rmax):
 
 # In the following code block, we initialize the required variables for our simulation. This includes the initial state as well as the set of control actions for the car. We also set the rate of rotation of our lidar scan. The obstacles of the true map are represented by 1's in the true map, 0's represent free space. Each cell in the belief map `m` is initialized to 0.5 as our prior probability of occupancy, and from that belief map we compute our logodds occupancy grid `L`.
 
-# In[4]:
+# In[21]:
 
 
 # Simulation time initialization.
@@ -147,13 +147,13 @@ x[:, 0] = x_0
 
 # Here is where you will enter your code. Your task is to complete the main simulation loop. After each step of robot motion, you are required to gather range data from your lidar scan, and then apply the inverse scanner model to map these to a measured occupancy belief map. From this, you will then perform a logodds update on your logodds occupancy grid, and update our belief map accordingly. As the car traverses through the environment, the occupancy grid belief map should move closer and closer to the true map. At the code block after the end of the loop, the code will output some values which will be used for grading your assignment. Make sure to copy down these values and save them in a .txt file for when your visualization looks correct. Good luck!
 
-# In[ ]:
+# In[22]:
 
 
-get_ipython().run_cell_magic('capture', '', '# Intitialize figures.\nmap_fig = plt.figure()\nmap_ax = map_fig.add_subplot(111)\nmap_ax.set_xlim(0, N)\nmap_ax.set_ylim(0, M)\n\ninvmod_fig = plt.figure()\ninvmod_ax = invmod_fig.add_subplot(111)\ninvmod_ax.set_xlim(0, N)\ninvmod_ax.set_ylim(0, M)\n\nbelief_fig = plt.figure()\nbelief_ax = belief_fig.add_subplot(111)\nbelief_ax.set_xlim(0, N)\nbelief_ax.set_ylim(0, M)\n\nmeas_rs = []\nmeas_r = get_ranges(true_map, x[:, 0], meas_phi, rmax)\nmeas_rs.append(meas_r)\ninvmods = []\ninvmod = inverse_scanner(M, N, x[0, 0], x[1, 0], x[2, 0], meas_phi, meas_r, \\\n                         rmax, alpha, beta)\ninvmods.append(invmod)\nms = []\nms.append(m)\n\n# Main simulation loop.\nfor t in range(1, len(time_steps)):\n    # Perform robot motion.\n    move = np.add(x[0:2, t-1], u[:, u_i]) \n    # If we hit the map boundaries, or a collision would occur, remain still.\n    if (move[0] >= M - 1) or (move[1] >= N - 1) or (move[0] <= 0) or (move[1] <= 0) \\\n        or true_map[int(round(move[0])), int(round(move[1]))] == 1:\n        x[:, t] = x[:, t-1]\n        u_i = (u_i + 1) % 4\n    else:\n        x[0:2, t] = move\n    x[2, t] = (x[2, t-1] + w[t]) % (2 * math.pi)\n    \n    # TODO Gather the measurement range data, which we will convert to occupancy probabilities\n    # using our inverse measurement model.\n    meas_r = \n    meas_rs.append(meas_r)\n    \n    # TODO Given our range measurements and our robot location, apply our inverse scanner model\n    # to get our measure probabilities of occupancy.\n    # invmod = ...\n    invmods.append(invmod)\n    \n    # TODO Calculate and update the log odds of our occupancy grid, given our measured\n    # occupancy probabilities from the inverse model.\n    # L = ...\n    \n    # TODO Calculate a grid of probabilities from the log odds.\n    # m = ...\n    ms.append(m)\n    ')
+get_ipython().run_cell_magic('capture', '', '# Intitialize figures.\nmap_fig = plt.figure()\nmap_ax = map_fig.add_subplot(111)\nmap_ax.set_xlim(0, N)\nmap_ax.set_ylim(0, M)\n\ninvmod_fig = plt.figure()\ninvmod_ax = invmod_fig.add_subplot(111)\ninvmod_ax.set_xlim(0, N)\ninvmod_ax.set_ylim(0, M)\n\nbelief_fig = plt.figure()\nbelief_ax = belief_fig.add_subplot(111)\nbelief_ax.set_xlim(0, N)\nbelief_ax.set_ylim(0, M)\n\nmeas_rs = []\nmeas_r = get_ranges(true_map, x[:, 0], meas_phi, rmax)\nmeas_rs.append(meas_r)\ninvmods = []\ninvmod = inverse_scanner(M, N, x[0, 0], x[1, 0], x[2, 0], meas_phi, meas_r, \\\n                         rmax, alpha, beta)\ninvmods.append(invmod)\nms = []\nms.append(m)\n\n# Main simulation loop.\nfor t in range(1, len(time_steps)):\n    # Perform robot motion.\n    move = np.add(x[0:2, t-1], u[:, u_i]) \n    # If we hit the map boundaries, or a collision would occur, remain still.\n    if (move[0] >= M - 1) or (move[1] >= N - 1) or (move[0] <= 0) or (move[1] <= 0) \\\n        or true_map[int(round(move[0])), int(round(move[1]))] == 1:\n        x[:, t] = x[:, t-1]\n        u_i = (u_i + 1) % 4\n    else:\n        x[0:2, t] = move\n    x[2, t] = (x[2, t-1] + w[t]) % (2 * math.pi)\n    \n    # TODO Gather the measurement range data, which we will convert to occupancy probabilities\n    # using our inverse measurement model.\n    meas_r = get_ranges(true_map, x[:, t], meas_phi, rmax)\n    meas_rs.append(meas_r)\n    \n    # TODO Given our range measurements and our robot location, apply our inverse scanner model\n    # to get our measure probabilities of occupancy.\n    x_r = x[0, t]\n    y_r = x[1, t]\n    theta_r = x[2, t]\n    invmod = inverse_scanner(M, N, x_r, y_r, theta_r, meas_phi, meas_r, rmax, alpha, beta)\n    invmods.append(invmod)\n    \n    # TODO Calculate and update the log odds of our occupancy grid, given our measured\n    # occupancy probabilities from the inverse model.\n    L_now = np.log(np.divide(invmod, 1 - invmod))\n    L = L_now + L - L0\n    \n    # TODO Calculate a grid of probabilities from the log odds.\n    odds = np.exp(L)\n    m = np.divide(odds, odds + 1)\n    ms.append(m)\n    ')
 
 
-# In[ ]:
+# In[23]:
 
 
 # Ouput for grading. Do not modify this code!
@@ -170,7 +170,7 @@ print("{}".format(m_f[25, 50]))
 
 # Now that you have written your main simulation loop, you can visualize your robot motion in the true map, your measured belief map, and your occupancy grid belief map below. These are shown in the 1st, 2nd, and 3rd videos, respectively. If your 3rd video converges towards the true map shown in the 1st video, congratulations! You have completed the assignment. Please submit the output of the box above as a .txt file to the grader for this assignment.
 
-# In[ ]:
+# In[24]:
 
 
 def map_update(i):
@@ -203,19 +203,19 @@ invmod_anim = anim.FuncAnimation(invmod_fig, invmod_update, frames=len(x[0, :]),
 belief_anim = anim.FuncAnimation(belief_fig, belief_update, frames=len(x[0, :]), repeat=False)
 
 
-# In[ ]:
+# In[11]:
 
 
 HTML(map_anim.to_html5_video())
 
 
-# In[ ]:
+# In[18]:
 
 
 HTML(invmod_anim.to_html5_video())
 
 
-# In[ ]:
+# In[25]:
 
 
 HTML(belief_anim.to_html5_video())
